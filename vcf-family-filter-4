@@ -1,0 +1,122 @@
+#!/usr/bin/env perl
+
+use strict;
+#use warnings;
+use Carp;
+use Vcf;
+use Getopt::Long;
+use Data::Dumper;
+
+	my $filter_matches = 0;
+	my @input_filters;
+	GetOptions ('matches' => \$filter_matches, "filter=s" => \@input_filters);
+    
+    my @filters;
+    my %filter_names;
+    foreach my $f (@input_filters) {
+    	my $temp = {};
+    	($temp->{NAME}, my $rules) = split(/=/, $f);
+    	$filter_names{$temp->{NAME}}=1;
+    	my $wc_count=1;
+    	foreach my $g (split(/;/, $rules)) {
+    		my @h = split(/,/, $g);
+    		my $name = shift(@h);
+    		if($name =~ /^\*(\d)+$/ ) {
+    			#a wildcard sample
+    			$temp->{WC}{$wc_count."_".$1} = [ @h ];
+    			$wc_count++;
+    		} else {
+    			$temp->{SAMPLES}{$name} = [ @h ];
+    		}
+    	}
+    	push @filters, $temp;
+    }
+
+    my $vcf = Vcf->new(fh=>\*STDIN);
+    $vcf->parse_header();
+        
+    #foreach filter - add header line
+    for my $head (sort keys %filter_names) {
+    	$vcf->add_header_line({key=>'FILTER', ID=>$head,Description=>'Added by Family Filtering script'});
+    }
+    
+    print $vcf->format_header();
+
+    while (my $x=$vcf->next_data_hash())
+    {    
+    	#TODO: from the input data
+    	#foreach filter
+    	for my $i ( 0 .. $#filters ) {
+    		my $line_fails_filter = 1;
+    		
+    		#foreach sample
+    		foreach my $sample (sort(keys %{ $filters[$i]{SAMPLES} } )) {
+    			#get the called alleles for the current sample
+    			my ($al1,$sep,$al2) = exists($$x{gtypes}{$sample}{GT}) ? $vcf->parse_alleles($x,$sample) : ('.','/','.');
+    			#calculate the number of alt alleles
+    			my $genotype = 0;
+    			if ($$x{ALT}[0] eq $al1) {
+    				$genotype++;
+    			}
+    			if ($$x{ALT}[0] eq $al2) {
+    				$genotype++;
+    			}
+    			if ($al1 eq '.' && $al2 eq '.') {
+    				$genotype = -1;
+    			}
+    			#if doesn't have one of the possible genotypes
+    			my $pass = 0;
+    			for my $allowable_genotype (@{ $filters[$i]{SAMPLES}{$sample} }) {
+    				if($allowable_genotype == $genotype) {
+    					$pass = 1;
+    				}
+    			}
+    			if ($pass == 0) {
+    				#none of the allowable genotypes were present - add filter flag to row
+    				#$$x{FILTER} = $vcf->add_filter($$x{FILTER},$filters[$i]{NAME}=>1);
+    				$line_fails_filter = 0;
+    			}
+    		}
+    		my $wc_fails = 1;
+    		if(exists $filters[$i]{WC}) {
+    			my %wc_filter;
+    			
+    			foreach my $sample ($vcf->get_samples()) {
+    				my ($al1,$sep,$al2) = exists($$x{gtypes}{$sample}{GT}) ? $vcf->parse_alleles($x,$sample) : ('.','/','.');
+    				#calculate the number of alt alleles
+    				my $genotype = 0;
+    				if ($$x{ALT}[0] eq $al1) {
+    					$genotype++;
+    				}
+    				if ($$x{ALT}[0] eq $al2) {
+    					$genotype++;
+    				}
+    				if ($al1 eq '.' && $al2 eq '.') {
+    					$genotype = -1;
+    				}
+    				$wc_filter{$genotype}++;
+    			}
+    			foreach my $wc_name (keys %{ $filters[$i]{WC} } ) {
+    				$wc_name =~ /^\d+_(\d+)$/;
+    				my $min =$1;
+    				my $total_allowable=0;
+    				for my $allowable_genotype (@{ $filters[$i]{WC}{$wc_name} }) {
+    					$total_allowable += $wc_filter{$allowable_genotype};
+    				}
+    				if($total_allowable < $min) {
+    					$wc_fails = 0;
+    				}
+    			}
+    		} 
+    		
+    		if ($line_fails_filter == $filter_matches && $wc_fails == $filter_matches) {
+    			$$x{FILTER} = $vcf->add_filter($$x{FILTER},$filters[$i]{NAME}=>1);
+    		}
+    	}
+    	
+    	
+    	print $vcf->format_line($x);
+    }
+
+exit;
+
