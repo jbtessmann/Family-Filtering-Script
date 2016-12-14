@@ -26,18 +26,17 @@ https://vcftools.github.io/index.html
   
 5. Utilize the family filtering script. Example execution code for a bash script:
 
-MERGEDNAME=File1_File2
-CHILD=L3p4d204
-MOTHER=L3p5d204
+ MERGEDNAME=File1_File2
+ CHILD=L3p4d204
+ MOTHER=L3p5d204
 
-cat  $MERGEDNAME.vcf | perl 
-/Shared/CLCG/tbraun/temp/vcftools_0.1.9/perl/vcf-family-filter-4 --matches \
+ cat  $MERGEDNAME.vcf | perl 
+ /Shared/CLCG/tbraun/temp/vcftools_0.1.9/perl/vcf-family-filter-4 --matches \
   --filter "WTaffected=$CHILD,-1,0" \
   --filter "HomHyp=$CHILD,2;$MOTHER,-1,1;*1,1" \
   --filter "Supported_M=$CHILD,1;$MOTHER,1" \
   --filter "MendelViolationR=$CHILD,2;*1,0" \
-  --filter "MendelViolationD=$CHILD,1;*2,0" \
->  $MERGEDNAME.FamFilt.vcf
+  --filter "MendelViolationD=$CHILD,1;*2,0" >  $MERGEDNAME.FamFilt.vcf
 
 6. Remove unneccessary variants:
 
